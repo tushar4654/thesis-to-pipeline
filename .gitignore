@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+# Thesis files stay local unless you add them on purpose.
+theses/*
+!theses/.gitkeep
