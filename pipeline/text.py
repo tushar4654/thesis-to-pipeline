@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_RANGE_DASH = re.compile(r"(?<=\d)\s*[–—]\s*(?=\d)")   # 2022–24 -> 2022-24
-_OTHER_DASH = re.compile(r"\s*[–—]\s*")                 # a — b   -> a, b
+_RANGE_DASH = re.compile("(?<=\\d)\\s*[\u2013\u2014]\\s*(?=\\d)")  # "2022 to 24" ranges become 2022-24
+_OTHER_DASH = re.compile("\\s*[\u2013\u2014]\\s*")                 # any other dash becomes a comma
 
 
 def clean(s: str) -> str:
