@@ -16,6 +16,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from pipeline.score import run_score
+from pipeline.search import run_search
 from pipeline.spec import check_spec, extract_spec, load_spec, save_spec
 
 
@@ -80,8 +82,24 @@ def main() -> int:
         for w in check_spec(spec):
             print(f"Warning: {w}")
 
-    # Step 2 onward: not built yet
-    print("\nSearch (step 2) is not built yet.")
+    # Step 2: search
+    if not os.getenv("EXA_API_KEY"):
+        print("No Exa key found. Add EXA_API_KEY to .env (see .env.example).", file=sys.stderr)
+        return 1
+    cands, searches = run_search(spec, out)
+
+    # Step 3: score and write shortlist.md and candidates.csv
+    shortlist = run_score(spec, cands, out, searches)
+    print("\nShortlist:")
+    for i, c in enumerate(shortlist, 1):
+        print(f"  {i:>2}. {c['name'][:34]:<34} {c['score']:>3}  {c['type'][:28]}{'  (seed)' if c['seed'] else ''}")
+    for s in spec.seed_companies:
+        rank = next((i for i, c in enumerate(shortlist, 1) if c["seed"] and s.name.split()[0].lower() in c["name"].lower()), None)
+        print(f"Seed {s.name}: " + (f"shortlist #{rank}" if rank else "not on the shortlist"))
+    for n in spec.other_named_companies:
+        if n.status == "already_priced":
+            hit = next((c for c in cands if n.name.split()[0].lower() in c["name"].lower()), None)
+            print(f"Priced {n.name}: " + (f"found, marked '{hit['excluded'] or 'not excluded'}'" if hit else "not found"))
     return 0
 
 
