@@ -1,26 +1,19 @@
-"""Read a thesis file into Claude message content blocks."""
+"""Read a thesis file into plain text."""
 
 from __future__ import annotations
 
-import base64
 from pathlib import Path
-from typing import List
+
+from pypdf import PdfReader
 
 TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 
 
-def thesis_content(path: Path) -> List[dict]:
-    """PDFs go to Claude as a document block so charts and tables are kept.
-    Markdown and plain text go in as text."""
+def thesis_text(path: Path) -> str:
+    """PDFs are converted to text locally. Markdown and plain text are read as is."""
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        data = base64.standard_b64encode(path.read_bytes()).decode("ascii")
-        return [{
-            "type": "document",
-            "source": {"type": "base64", "media_type": "application/pdf", "data": data},
-            "title": path.stem,
-        }]
+        return "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
     if suffix in TEXT_SUFFIXES:
-        text = path.read_text(encoding="utf-8")
-        return [{"type": "text", "text": f"<thesis title=\"{path.stem}\">\n{text}\n</thesis>"}]
+        return path.read_text(encoding="utf-8")
     raise ValueError(f"Unsupported thesis format '{suffix}'. Use a PDF or a markdown file.")

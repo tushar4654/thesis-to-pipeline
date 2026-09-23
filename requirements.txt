@@ -1,4 +1,5 @@
-anthropic>=1.8.0
+requests>=2.31.0
+pypdf>=4.0
 pydantic>=2.8
 pyyaml>=6.0
 python-dotenv>=1.0.0

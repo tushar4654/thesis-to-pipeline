@@ -1,24 +1,27 @@
 """Step 1: turn a thesis into a structured search spec (spec.yaml).
 
-Claude reads the thesis once and fills a fixed schema. The spec is the only
+The LLM reads the thesis once and fills a fixed schema. The spec is the only
 thing later steps read, so a human can review and edit it before any search runs.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Literal, Optional
 
-import anthropic
+import requests
 import yaml
 from pydantic import BaseModel
 
-from .ingest import thesis_content
+from .ingest import thesis_text
 from .text import plain
 
-MODEL = "claude-opus-5"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+FALLBACK_MODEL = "qwen/qwen3.8-27b:free"
 
 
 # ---------------------------------------------------------------------------
@@ -123,37 +126,67 @@ Never use em dashes or en dashes; use commas, colons or full stops. Use only wha
 thesis says. Do not invent companies, numbers or websites."""
 
 
-def extract_spec(thesis_path: Path, client: Optional[anthropic.Anthropic] = None) -> tuple[Spec, dict]:
-    """Ask Claude for the spec. Returns the spec and a small metadata dict."""
-    client = client or anthropic.Anthropic()
-    content = thesis_content(thesis_path)
-    content.append({"type": "text", "text": "Build the search spec for this thesis."})
+def _strict_schema(schema: dict) -> dict:
+    """Inline $defs and forbid extra keys, which strict JSON schema mode expects."""
+    defs = schema.pop("$defs", {})
 
-    response = client.beta.messages.parse(
-        model=MODEL,
-        max_tokens=16000,
-        system=SYSTEM,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "high"},
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-        messages=[{"role": "user", "content": content}],
-        output_format=Spec,
+    def walk(node):
+        if isinstance(node, dict):
+            if "$ref" in node:
+                return walk(dict(defs[node["$ref"].split("/")[-1]]))
+            node = {k: walk(v) for k, v in node.items() if k != "title"}
+            if node.get("type") == "object":
+                node["additionalProperties"] = False
+            return node
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return node
+
+    return walk(schema)
+
+
+def extract_spec(thesis_path: Path) -> tuple[Spec, dict]:
+    """Ask the model on OpenRouter for the spec. Returns the spec and a small metadata dict."""
+    model = os.getenv("LLM_MODEL") or DEFAULT_MODEL
+    text = thesis_text(thesis_path)
+
+    resp = requests.post(
+        OPENROUTER_URL,
+        headers={"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"},
+        json={
+            "models": [model, FALLBACK_MODEL],
+            "max_tokens": 16000,
+            "messages": [
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": f"<thesis title=\"{thesis_path.stem}\">\n{text}\n</thesis>\n\n"
+                                            "Build the search spec for this thesis."},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "spec", "strict": True,
+                                "schema": _strict_schema(Spec.model_json_schema())},
+            },
+            "provider": {"require_parameters": True},
+        },
+        timeout=300,
     )
+    if resp.status_code != 200:
+        raise RuntimeError(f"OpenRouter returned {resp.status_code}: {resp.text[:500]}")
+    data = resp.json()
+    if "error" in data:
+        raise RuntimeError(f"OpenRouter error: {data['error']}")
 
-    if response.stop_reason == "refusal":
-        raise RuntimeError(f"Claude declined to build the spec: {response.stop_details}")
-    if response.stop_reason == "max_tokens" or response.parsed_output is None:
-        raise RuntimeError(f"No usable spec came back (stop_reason={response.stop_reason}).")
-
-    spec = Spec.model_validate(plain(response.parsed_output.model_dump()))
+    raw = data["choices"][0]["message"]["content"].strip()
+    raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    spec = Spec.model_validate(plain(json.loads(raw)))
+    usage = data.get("usage", {})
     meta = {
         "thesis": str(thesis_path),
-        "model": response.model,
+        "model": data.get("model", model),
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "input_tokens": response.usage.input_tokens,
-        "output_tokens": response.usage.output_tokens,
-        "request_id": response._request_id,
+        "input_tokens": usage.get("prompt_tokens"),
+        "output_tokens": usage.get("completion_tokens"),
+        "request_id": data.get("id"),
     }
     return spec, meta
 

@@ -4,13 +4,13 @@ Upload an investment thesis, get a ranked list of Indian startups that fit it, w
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # add ANTHROPIC_API_KEY
+cp .env.example .env        # add OPENROUTER_API_KEY
 .venv/bin/python run.py --thesis theses/my-thesis.pdf
 ```
 
 ## How it works
 
-1. **Thesis to spec.** Claude reads the thesis (PDF or markdown) and writes `runs/<name>/spec.yaml`:
+1. **Thesis to spec.** An LLM on OpenRouter (free Nemotron 3 Super by default) reads the thesis (PDF or markdown) and writes `runs/<name>/spec.yaml`:
    the investable pattern, company types to include and exclude, hard filters, 20 to 40
    search keywords grouped by type, and the seed companies the thesis names. The run stops
    here so you can review and edit the spec. Run the same command again to continue.

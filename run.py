@@ -61,8 +61,8 @@ def main() -> int:
 
     # Step 1: thesis to spec
     if args.regen or not spec_path.exists():
-        if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
-            print("No Anthropic key found. Add ANTHROPIC_API_KEY to .env (see .env.example).", file=sys.stderr)
+        if not os.getenv("OPENROUTER_API_KEY"):
+            print("No OpenRouter key found. Add OPENROUTER_API_KEY to .env (see .env.example).", file=sys.stderr)
             return 1
         print(f"Reading {args.thesis.name} and building the search spec...")
         spec, meta = extract_spec(args.thesis)
